@@ -26,3 +26,11 @@ class NoSyncBase:
                     pass
 
             return DummyContext()
+
+
+def main_rank_only(func):
+    def wrapper(*args, **kwargs):
+        if kwargs.get("main_rank", True):
+            return func(*args, **kwargs)
+
+    return wrapper

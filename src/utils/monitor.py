@@ -1,4 +1,5 @@
 import functools
+import logging
 import time
 
 import torch
@@ -44,3 +45,14 @@ class Timer:
         if reset:
             self._start = now
         return diff
+
+
+# Filter to log only on the main rank
+class MainRankFilter(logging.Filter):
+    def __init__(self, main_rank):
+        super().__init__()
+        self.main_rank = main_rank
+
+    def filter(self, record):
+        # Only log if this is the main rank
+        return self.main_rank
