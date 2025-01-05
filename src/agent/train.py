@@ -22,12 +22,15 @@ from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.pizero import PiZero
 from src.model.vla.processing import VLAProcessor
 from src.utils.metric import get_action_accuracy
-from src.utils.monitor import Timer, log_allocated_gpu_memory, log_execution_time
+from src.utils.monitor import (
+    MainRankFilter,
+    Timer,
+    log_allocated_gpu_memory,
+    log_execution_time,
+)
 from src.utils.optim import CosineAnnealingWarmupRestarts, get_num_params_in_billions
 
 log = logging.getLogger(__name__)
-
-os.environ["WANDB__SERVICE_WAIT"] = "300"
 
 
 class TrainAgent:
@@ -57,10 +60,11 @@ class TrainAgent:
                     f"Local rank: {local_rank}, GPU UUID: {torch.cuda.get_device_properties(i).uuid}"
                 )
         self.main_rank = not self.multi_gpu or global_rank == 0
+        log.addFilter(MainRankFilter(main_rank=self.main_rank))
 
         # logging
-        self.use_wandb = cfg.get("wandb", False)
-        if self.use_wandb and self.main_rank:
+        self.use_wandb = cfg.get("wandb", False) and self.main_rank
+        if self.use_wandb:
             wandb.init(
                 entity=cfg.wandb.entity,
                 project=cfg.wandb.project,
@@ -403,14 +407,11 @@ class TrainAgent:
                         ema_model.update_parameters(model)
 
                     # save model at the end of update, models just synced
-                    if self.main_rank and (
-                        (
-                            cnt_update % self.save_model_freq == 0
-                            and cnt_update > self.save_model_start
-                        )
-                        or cnt_update == self.n_updates
-                    ):
-                        self.save_training(cnt_update, cnt_batch)
+                    if (
+                        cnt_update % self.save_model_freq == 0
+                        and cnt_update > self.save_model_start
+                    ) or cnt_update == self.n_updates:
+                        self.save_training(cnt_update, cnt_batch, self.main_rank)
 
                 # aggregate loss
                 if self.multi_gpu:
@@ -421,6 +422,9 @@ class TrainAgent:
 
                 # validation with action accuracy
                 if self.run_eval and (cnt_batch + 1) % self.eval_freq == 0:
+                    log.info(
+                        f"Running evaluation for {self.per_device_num_eval_batch} batches..."
+                    )
                     new_eval_from_last_log = True
                     model_meta.eval()
                     eval_accuracy = torch.zeros(
@@ -482,20 +486,19 @@ class TrainAgent:
                         dist.all_reduce(eval_l1_loss, op=dist.ReduceOp.SUM)
                         eval_accuracy /= dist.get_world_size()
                         eval_l1_loss /= dist.get_world_size()
-                    if self.main_rank:
-                        log_msg = f"Eval | l1 Loss: {eval_l1_loss.item():.3f} | "
-                        log_msg += " | ".join(
-                            [
-                                f"acc thres {threshold}: {accuracy.item():.3f}"
-                                for threshold, accuracy in zip(
-                                    self.eval_thresholds, eval_accuracy
-                                )
-                            ]
-                        )
-                        log.info(log_msg)
+                    log_msg = f"Eval | l1 Loss: {eval_l1_loss.item():.3f} | "
+                    log_msg += " | ".join(
+                        [
+                            f"acc thres {threshold}: {accuracy.item():.3f}"
+                            for threshold, accuracy in zip(
+                                self.eval_thresholds, eval_accuracy
+                            )
+                        ]
+                    )
+                    log.info(log_msg)
 
                 # log loss
-                if self.main_rank and cnt_batch % self.log_freq == 0:
+                if cnt_batch % self.log_freq == 0:
                     loss_metric = np.mean(loss_deque)
                     peak_vram = torch.cuda.max_memory_reserved(self.gpu_id) / (1024**3)
                     log_msg = f"Batch {cnt_batch} Update {cnt_update}: t {timer():8.4f} | vram {peak_vram:6.3f} | loss {loss_metric:6.4f} | action lr {self.action_optimizer.param_groups[0]['lr']:10.8f}"
@@ -561,24 +564,23 @@ class TrainAgent:
         checkpoint_size_in_gb = os.path.getsize(savepath) / (1024**3)
         log.info(f"Saved model to {savepath}, size: {checkpoint_size_in_gb:.3f} GB")
 
-    @log_execution_time()
-    def load_checkpoint(self, path):
+    @log_execution_time(log)
+    def load_checkpoint(self, path: str):
         """load to cpu first, then move to gpu"""
         data = torch.load(path, weights_only=True, map_location="cpu")
         self.cnt_update = data["cnt_update"]
         self.cnt_batch = data["cnt_batch"]
         self.wandb_id = data["wandb_id"]
-        # remove "_orig_mod." prefix if saved model was compiled
         data["model"] = {
             k.replace("_orig_mod.", ""): v for k, v in data["model"].items()
-        }
+        }  # remove "_orig_mod." prefix if saved model was compiled
         self.model.load_state_dict(data["model"], strict=True)
         log.info(
             f"Loaded model from {path} at update {self.cnt_update} batch {self.cnt_batch}"
         )
 
-    @log_execution_time()
-    def load_optimizer(self, path):
+    @log_execution_time(log)
+    def load_optimizer(self, path: str):
         """load to cpu first, then move to gpu"""
         from src.utils.optim import optimizer_to
 
