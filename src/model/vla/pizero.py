@@ -79,14 +79,18 @@ class PiZero(nn.Module, NoSyncBase):
                 self.action_hidden_size,
                 time_cond=False,
             )
-            self.time_embedding = SinusoidalPosEmb(cfg.time_hidden_size)
+            self.time_embedding = SinusoidalPosEmb(
+                cfg.time_hidden_size, cfg.time_max_period
+            )
         else:  # matching pi0
             self.action_encoder = ActionEncoder(
                 self.action_dim,
                 self.action_hidden_size,
                 time_cond=True,
             )
-            self.time_embedding = SinusoidalPosEmb(self.action_hidden_size)
+            self.time_embedding = SinusoidalPosEmb(
+                self.action_hidden_size, cfg.time_max_period
+            )
         self.proprio_encoder = nn.Linear(
             self.proprio_dim,
             self.proprio_hidden_size,

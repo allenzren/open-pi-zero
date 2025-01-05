@@ -7,18 +7,16 @@ from einops import rearrange
 
 
 class SinusoidalPosEmb(nn.Module):
-    def __init__(self, dim: int):
+    def __init__(self, dim: int, max_period: float = 10000.0):
         super().__init__()
-        self.dim = dim
+        self.half_dim = dim // 2
+        self.max_period = max_period
 
-    def forward(
-        self,
-        t: torch.FloatTensor,
-        max_period: float = 10000.0,
-    ) -> torch.FloatTensor:
-        half_dim = self.dim // 2
-        emb = math.log(max_period) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=t.device, dtype=t.dtype) * -emb)
+    def forward(self, t: torch.FloatTensor) -> torch.FloatTensor:
+        emb = math.log(self.max_period) / (self.half_dim - 1)
+        emb = torch.exp(
+            torch.arange(self.half_dim, device=t.device, dtype=t.dtype) * -emb
+        )
         emb = t[:, None] * emb[None, :]
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb

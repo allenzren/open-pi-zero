@@ -221,7 +221,7 @@ class MixtureAttention(nn.Module):
         self, x: torch.FloatTensor, position_ids: torch.LongTensor
     ) -> torch.FloatTensor:
         # [Batch_Size, Seq_Len, Head_Dim], [Batch_Size, Seq_Len, Head_Dim]
-        cos, sin = self.rotary_emb(x, position_ids, seq_len=None)
+        cos, sin = self.rotary_emb(x, position_ids)
         return cos, sin
 
     def forward_apply_rotary_emb(

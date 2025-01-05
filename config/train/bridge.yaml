@@ -91,6 +91,7 @@ mixture:
     use_quantize: ${quantize}
     use_lora: ${lora}
     adaptive_mode:  # not applicable for gemma
+    rope_theta: 10000.0  # 10000 in gemma
   proprio:
     hidden_size: 1024
     intermediate_size: 4096
@@ -99,6 +100,7 @@ mixture:
     use_quantize: False
     use_lora: False
     adaptive_mode: ${action_expert_adaptive_mode}
+    rope_theta: ${action_expert_rope_theta}
   action:
     hidden_size: 1024
     intermediate_size: 4096
@@ -107,7 +109,10 @@ mixture:
     use_quantize: False
     use_lora: False
     adaptive_mode: ${action_expert_adaptive_mode}
+    rope_theta: ${action_expert_rope_theta}
 time_hidden_size: 256 # only applicable if using adaptive
+time_max_period: 100.0
+action_expert_rope_theta: 100.0   # since action/proprio seq_len is pretty small
 
 # Fixed
 image_token_index: 257152
@@ -160,7 +165,6 @@ joint:
     num_key_value_heads: 1
     head_dim: 256
     rms_norm_eps: 1e-6
-    rope_theta: 10000.0
     attention_bias: False
     attention_dropout: 0.0
     pad_token_id: ${pad_token_id}
