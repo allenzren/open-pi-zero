@@ -10,6 +10,8 @@
 #SBATCH --cpus-per-task=104
 #SBATCH --mem=500G  # per node
 
+export WANDB__SERVICE_WAIT=300
+
 # export NCCL_P2P_DISABLE=1
 # export NCCL_IB_DISABLE=1
 # export NCCL_SHM_DISABLE=1

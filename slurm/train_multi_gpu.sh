@@ -10,6 +10,8 @@
 #SBATCH --cpus-per-task=104
 #SBATCH --mem=500G
 
+export WANDB__SERVICE_WAIT=300
+
 # GPU check
 echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 NUM_GPU="$(nvidia-smi --list-gpus | wc -l)"

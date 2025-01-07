@@ -5,7 +5,6 @@ Main eval agent. Only for Simpler for now.
 
 import logging
 import os
-import random
 
 import hydra
 import imageio
@@ -21,16 +20,6 @@ log = logging.getLogger(__name__)
 
 class EvalAgent:
     def __init__(self, cfg):
-        # seeding
-        self.seed = cfg.get("seed", 42)
-        random.seed(self.seed)
-        np.random.seed(self.seed)
-        torch.manual_seed(self.seed)
-
-        # devices
-        self.device = torch.device(f"cuda:{cfg.gpu_id}")
-
-        # training params
         self.n_eval_episode = cfg.n_eval_episode
         self.n_video = cfg.n_video
         self.log_dir = cfg.log_dir
@@ -38,6 +27,7 @@ class EvalAgent:
         os.makedirs(self.video_dir, exist_ok=True)
 
         # model
+        self.device = torch.device(f"cuda:{cfg.gpu_id}")
         self.dtype = torch.bfloat16 if cfg.get("use_bf16", False) else torch.float32
         self.model = PiZeroInference(cfg, use_ddp=False)
         self.load_checkpoint(cfg.checkpoint_path)
@@ -188,13 +178,12 @@ class EvalAgent:
         log.info(f"Success rate: {success_rate}")
         log.info("============================================")
 
-    @log_execution_time()
+    @log_execution_time(log)
     def load_checkpoint(self, path):
         """load to cpu first, then move to gpu"""
         data = torch.load(path, weights_only=True, map_location="cpu")
-        # remove "_orig_mod." prefix if saved model was compiled
         data["model"] = {
             k.replace("_orig_mod.", ""): v for k, v in data["model"].items()
-        }
+        }  # remove "_orig_mod." prefix if saved model was compiled
         self.model.load_state_dict(data["model"], strict=True)
         log.info(f"Loaded model from {path}")

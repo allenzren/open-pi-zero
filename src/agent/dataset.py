@@ -1,3 +1,5 @@
+import logging
+
 import tensorflow as tf
 
 from src.data.dataset import make_interleaved_dataset
@@ -6,10 +8,11 @@ from src.data.oxe import make_oxe_dataset_kwargs_and_weights
 from src.utils.monitor import log_execution_time
 
 tf.config.set_visible_devices([], "GPU")
+log = logging.getLogger(__name__)
 
 
 class TorchRLDSInterleavedDataset:
-    @log_execution_time()
+    @log_execution_time(log)
     def __init__(self, config, train=True):
         dataset_kwargs_list, sample_weights = make_oxe_dataset_kwargs_and_weights(
             config.dataset_mix,
