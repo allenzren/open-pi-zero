@@ -20,6 +20,7 @@ from transformers import AutoTokenizer
 from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.pizero import PiZero
 from src.model.vla.processing import VLAProcessor
+from src.utils.decorator import main_rank_only
 from src.utils.metric import get_action_accuracy
 from src.utils.monitor import (
     MainRankFilter,
@@ -209,16 +210,21 @@ class TrainAgent:
         if cfg.resume_checkpoint_path:
             self.load_optimizer(cfg.resume_checkpoint_path)
 
-        # Set up EMA
+        # Set up model averaging
         self.use_ema = cfg.get("use_ema", False)
         if self.use_ema:
-            self.ema_model = torch.optim.swa_utils.AveragedModel(
-                model,  # wrap the actual model, not the DDP model
-                multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(
-                    cfg.get("ema_decay", 0.999)
-                ),
-                device=cfg.get("ema_device", "cpu"),  # otherwise L40 OOM with bsz 16
-            )
+            self.ema_start = cfg.ema_start
+            self.ema_decay = cfg.get("ema_decay", 0.99)
+            self.ema_freq = cfg.get("ema_freq", 1)
+            self.ema_device = cfg.get("ema_device", self.device)
+        self.use_swa = cfg.get("use_swa", False)
+        if self.use_swa:
+            self.swa_start = cfg.swa_start
+            self.swa_freq = cfg.swa_freq
+            self.swa_device = cfg.get("swa_device", "cpu")
+        assert not (
+            self.use_ema and self.use_swa
+        ), "Cannot use both EMA and SWA at once"
 
         ########### Input processing ###########
 
@@ -273,8 +279,6 @@ class TrainAgent:
         else:
             model = self.model
         model_eval = model
-        if self.use_ema:
-            ema_model = self.ema_model
         model_meta.train()
 
         def preprocess_batch(batch, split_mask: bool, sample_fm_time: bool):
@@ -395,9 +399,13 @@ class TrainAgent:
                         self.vlm_optimizer.zero_grad(set_to_none=True)
                     cnt_update += 1
 
-                    # update EMA
-                    if self.use_ema:
-                        ema_model.update_parameters(model)
+                    # update ema after every grad step
+                    if hasattr(self, "model_avg"):
+                        if self.use_ema and cnt_update % self.ema_freq == 0:
+                            self.model_avg.update_parameters(model)
+                        if self.use_swa and cnt_update % self.swa_freq == 0:
+                            self.model_avg.update_parameters(model)
+                            log.info("SWA updated")
 
                     # save model at the end of update, models just synced
                     if (
@@ -424,32 +432,7 @@ class TrainAgent:
                         len(self.eval_thresholds), device=self.device
                     )
                     eval_l1_loss = torch.tensor(0.0, device=self.device)
-                    if self.main_rank:
-                        log.info(
-                            f"Running evaluation for {self.per_device_num_eval_batch} batches..."
-                        )
-
-                    # swap to ema parameters, later swap back --- takes 3s
-                    if self.use_ema:
-                        orig_params = {
-                            k: v.cpu().clone() for k, v in model.state_dict().items()
-                        }  # state_dict returns shallow copy
-                        ema_params = ema_model.module.state_dict()
-                        model.load_state_dict(ema_params, strict=True)
-                        if self.debug:
-                            weight_name = "action_decoder.weight"
-                            if self.use_torch_compile:
-                                weight_name = "_orig_mod." + weight_name
-                            assert torch.allclose(
-                                ema_params[weight_name],
-                                model.action_decoder.weight.cpu(),
-                            )
-                            assert not torch.allclose(
-                                orig_params[weight_name],
-                                model.action_decoder.weight.cpu(),
-                            )
-
-                    with torch.no_grad():
+                    with torch.inference_mode():
                         for _ in range(self.per_device_num_eval_batch):
                             batch_eval = next(self.val_dataiterator)
                             inputs = preprocess_batch(
@@ -465,10 +448,6 @@ class TrainAgent:
                             eval_l1_loss += torch.nn.functional.l1_loss(
                                 preds, gt_actions
                             )
-
-                    # swap parameters back
-                    if self.use_ema:
-                        model.load_state_dict(orig_params)
                     model_meta.train()
 
                     # get stats
@@ -489,6 +468,26 @@ class TrainAgent:
                         ]
                     )
                     log.info(log_msg)
+
+                # start SWA/ema --- wrap the actual model, not the DDP model
+                if not hasattr(self, "model_avg"):
+                    if self.use_swa and cnt_update == self.swa_start:
+                        self.model_avg = torch.optim.swa_utils.AveragedModel(
+                            model, device=self.swa_device
+                        )
+                        log.info("Starting SWA...")
+                    if self.use_ema and cnt_update == self.ema_start:
+                        self.model_avg = torch.optim.swa_utils.AveragedModel(
+                            model,
+                            multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(
+                                self.ema_decay
+                            ),
+                            device=self.ema_device,
+                        )
+                        model_eval = (
+                            self.model_avg.module
+                        )  # switch to using ema for eval
+                        log.info(f"Starting EMA with decay {self.ema_decay}...")
 
                 # log loss
                 if cnt_batch % self.log_freq == 0:
@@ -526,16 +525,20 @@ class TrainAgent:
                 if cnt_update >= self.n_updates:
                     return
 
-    @log_execution_time()
-    def save_training(self, cnt_update, cnt_batch):
-        # TODO(allenzren): skip saving redundant proprio weights
-        if self.use_ema:
-            weights = self.ema_model.module.state_dict()
+    @main_rank_only
+    @log_execution_time(log)
+    def save_training(self, cnt_update: int, cnt_batch: int, main_rank: bool):
+        if hasattr(self, "model_avg"):
+            weights = self.model_avg.module.state_dict()
+            model_type = "ema" if self.use_ema else "swa"
+            n_averaged = self.model_avg.state_dict()["n_averaged"]
         else:
             if self.multi_gpu:
                 weights = self.model.module.state_dict()
             else:
                 weights = self.model.state_dict()
+            model_type = "normal"
+            n_averaged = 1
         data = {
             "cnt_update": cnt_update,
             "cnt_batch": cnt_batch,
@@ -549,13 +552,14 @@ class TrainAgent:
             if self.train_vlm
             else None,
             "wandb_id": wandb.run.id if self.use_wandb else None,
+            "n_averaged": n_averaged,
         }
-        if self.use_ema:
-            data["ema_n_averaged"] = self.ema_model.state_dict()["n_averaged"]
         savepath = os.path.join(self.checkpoint_dir, f"step{cnt_update}.pt")
         torch.save(data, savepath)
         checkpoint_size_in_gb = os.path.getsize(savepath) / (1024**3)
-        log.info(f"Saved model to {savepath}, size: {checkpoint_size_in_gb:.3f} GB")
+        log.info(
+            f"Saved model to {savepath}, size: {checkpoint_size_in_gb:.2f} GB, type: {model_type}, averaged: {n_averaged}"
+        )
 
     @log_execution_time(log)
     def load_checkpoint(self, path: str):
