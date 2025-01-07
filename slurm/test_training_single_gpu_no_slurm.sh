@@ -29,8 +29,12 @@ CUDA_VISIBLE_DEVICES=0 HYDRA_FULL_ERROR=1 uv run \
     use_bf16=True \
     use_amp=True \
     use_ema=True \
-    ema_decay=0.999 \
-    ema_device=cpu \
+    ema_decay=0.99 \
+    ema_device=cuda \
+    use_swa=False \
+    swa_start=0 \
+    swa_freq=2 \
+    swa_device=cpu \
     action_lr_scheduler.warmup_steps=0 \
     vlm_lr_scheduler.warmup_steps=0
 # 'resume_checkpoint_path="...fractal_train[:95%]_tp4_beta...ckpt....pt"'

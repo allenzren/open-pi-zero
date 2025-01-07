@@ -24,6 +24,16 @@ lora_r: 32
 lora_dropout: 0.0
 debug: False
 
+use_ema: False
+ema_decay: 0.99
+ema_start: ${save_model_start}
+ema_freq: 1
+ema_device: cuda
+use_swa: False
+swa_start: ${eval:'3786400 // ${global_batch_size} * 5'}
+swa_freq: ${eval:'3786400 // ${global_batch_size} // 4'}
+swa_device: cpu
+
 data:
   val:  # stil aplying image randomization
     split: train[95%:]
@@ -50,6 +60,7 @@ log_freq: 16
 n_epochs: 10  # provided ckpts were about 8 epochs
 n_updates: ${eval:'3786400 // ${global_batch_size} * ${n_epochs}'}  # fractal dataset has 3786400 transitions in total, all used
 save_model_freq: ${eval:'3786400 // ${global_batch_size} * 1'}
+save_model_start: ${eval:'3786400 // ${global_batch_size} * 3'}
 eval_freq: 2000
 eval_size: 1024
 eval_thresholds: [0.05, 0.1, 0.2, 0.3, 0.5]

@@ -20,7 +20,6 @@ TASKS=(
 
 N_EVAL_EPISODE=240   # octo simpler runs 3 seeds with 24 configs each, here we run 10 seeds
 
-# flow_sampling does not matter in eval; only used in training
 for TASK in ${TASKS[@]}; do
 
     CUDA_VISIBLE_DEVICES=0 HYDRA_FULL_ERROR=1 uv run \
@@ -34,7 +33,6 @@ for TASK in ${TASKS[@]}; do
         env.task=$TASK \
         horizon_steps=4 \
         act_steps=4 \
-        flow_sampling=uniform \
         use_bf16=False \
         use_torch_compile=True \
         name=bridge_beta \
