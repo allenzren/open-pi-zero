@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 
 class PiZero(nn.Module, NoSyncBase):
-    @log_execution_time()
+    @log_execution_time(log)
     def __init__(self, cfg, use_ddp: bool = False):
         super().__init__()
         self.cfg = cfg
@@ -153,7 +153,7 @@ class PiZero(nn.Module, NoSyncBase):
                     gemma_parameters.append(param)
         return gemma_parameters
 
-    @log_execution_time()
+    @log_execution_time(log)
     def load_pretrained_weights(self):
         """vision, projector, lm from paligemma"""
         import glob

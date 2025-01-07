@@ -5,19 +5,18 @@ Main training agent. Using torch.compile and bfloat16 by default. Optionally (Q)
 
 import logging
 import os
-import random
 from collections import deque
 
 import bitsandbytes as bnb
 import einops
 import numpy as np
 import torch
+import wandb
 from omegaconf import OmegaConf
 from PIL import Image
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-import wandb
 from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.pizero import PiZero
 from src.model.vla.processing import VLAProcessor
@@ -35,13 +34,7 @@ log = logging.getLogger(__name__)
 
 class TrainAgent:
     def __init__(self, cfg):
-        # seeding
-        self.seed = cfg.get("seed", 42)
-        random.seed(self.seed)
-        np.random.seed(self.seed)
-        torch.manual_seed(self.seed)
-
-        # devices
+        # device setup
         self.gpu_id = cfg.gpu_id
         self.device = torch.device(f"cuda:{self.gpu_id}")
         self.multi_gpu = cfg.multi_gpu

@@ -6,9 +6,11 @@ Launcher for all experiments.
 import logging
 import math
 import os
+import random
 import sys
 
 import hydra
+import numpy as np
 import pretty_errors
 import torch
 from omegaconf import OmegaConf, open_dict
@@ -49,6 +51,12 @@ def _main(cfg: OmegaConf):
     with open_dict(cfg):
         cfg.gpu_id = gpu_id
         cfg.multi_gpu = multi_gpu
+
+    # seeding
+    seed = cfg.get("seed", 42)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
     # run agent
     cls = hydra.utils.get_class(cfg._target_)
