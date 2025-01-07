@@ -84,8 +84,8 @@ mixture:
     rope_theta: ${action_expert_rope_theta}
 action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 time_hidden_size: 256 # only applicable if using adaptive
-time_max_period: 10000.0
-action_expert_rope_theta: 10000.0   # since action/proprio seq_len is pretty small
+time_max_period: 100.0
+action_expert_rope_theta: 1000.0   # since action/proprio seq_len is pretty small
 quantize: False
 lora: False
 lora_r: 32
