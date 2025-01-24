@@ -40,12 +40,6 @@ def main(args):
     if "bridge" in args.checkpoint_path:
         cfg = OmegaConf.load("config/eval/bridge.yaml")
 
-    # determine flow matching schedule
-    if "uniform" in args.checkpoint_path:
-        cfg.flow_sampling = "uniform"
-    if "beta" in args.checkpoint_path:
-        cfg.flow_sampling = "beta"
-
     # model
     dtype = torch.bfloat16 if args.use_bf16 else torch.float32
     model = PiZeroInference(cfg, use_ddp=False)

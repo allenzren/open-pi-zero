@@ -30,7 +30,8 @@ class NoSyncBase:
 
 def main_rank_only(func):
     def wrapper(*args, **kwargs):
-        if kwargs.get("main_rank", True):
-            return func(*args, **kwargs)
+        if not kwargs.get("main_rank", False):
+            return None
+        return func(*args, **kwargs)
 
     return wrapper

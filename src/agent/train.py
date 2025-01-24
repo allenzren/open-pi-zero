@@ -11,12 +11,12 @@ import bitsandbytes as bnb
 import einops
 import numpy as np
 import torch
-import wandb
 from omegaconf import OmegaConf
 from PIL import Image
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
+import wandb
 from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.pizero import PiZero
 from src.model.vla.processing import VLAProcessor
@@ -412,7 +412,10 @@ class TrainAgent:
                         cnt_update % self.save_model_freq == 0
                         and cnt_update > self.save_model_start
                     ) or cnt_update == self.n_updates:
-                        self.save_training(cnt_update, cnt_batch, self.main_rank)
+                        self.save_training(
+                            cnt_update, cnt_batch, main_rank=self.main_rank
+                        )
+                        dist.barrier()
 
                 # aggregate loss
                 if self.multi_gpu:
