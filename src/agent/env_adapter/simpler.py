@@ -5,8 +5,14 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import torch
-from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_obs_dict
 from transformers import AutoTokenizer
+
+try:
+    from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_obs_dict
+except ImportError:
+    # NOTE(YL): make simpler_env optional so we can support non-simplerenv tasks
+    print("Failed to simpler_env, we will ignore the error for now")
+    pass
 
 from src.agent.env_adapter.base import BaseEnvAdapter
 from src.model.vla.processing import VLAProcessor
@@ -56,8 +62,16 @@ class SimplerAdapter(BaseEnvAdapter):
         obs: dict,
         instruction: str,
     ) -> dict:
-        """using sxyz convention for euler angles"""
-        image = get_image_from_maniskill2_obs_dict(env, obs)  # [H, W, 3]
+        """
+        using sxyz convention for euler angles
+
+        NOTE(YL): we make the env: Optional[object] to be compatible with other envs
+                if env is None, obs is a dict with key "image"
+        """
+        if env is None:
+            image = obs["image"]  # [H, W, 3]
+        else:
+            image = get_image_from_maniskill2_obs_dict(env, obs)  # [H, W, 3]
         image = cv2.resize(
             image,
             self.image_size,
@@ -71,7 +85,10 @@ class SimplerAdapter(BaseEnvAdapter):
         model_inputs = self.processor(text=[instruction], images=images)
 
         # process proprio depending on the robot
-        raw_proprio = self.preprocess_proprio(obs)
+        if "proprio" in obs:
+            raw_proprio = obs["proprio"]
+        else:
+            raw_proprio = self.preprocess_proprio(obs)
 
         # normalize proprios - gripper opening is normalized
         if self.proprio_normalization_type == "bound":
@@ -149,7 +166,10 @@ class SimplerAdapter(BaseEnvAdapter):
 
     def get_video_frame(self, env, obs: dict) -> np.array:
         """for recording video"""
-        return get_image_from_maniskill2_obs_dict(env, obs)
+        if env is None:
+            return obs["image"]
+        else:
+            return get_image_from_maniskill2_obs_dict(env, obs)
 
 
 class BridgeSimplerAdapter(SimplerAdapter):

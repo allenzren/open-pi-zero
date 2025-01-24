@@ -52,3 +52,7 @@ fi
 ##################### HF #####################
 
 echo "Please also set TRANSFORMERS_CACHE (Huggingface cache) and download PaliGemma weights there."
+
+# Customized paths for my own use
+# export TRANSFORMERS_CACHE=/home/youliang/rail/
+# export CUDA_VISIBLE_DEVICES=1
