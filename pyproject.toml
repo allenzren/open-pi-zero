@@ -1,9 +1,9 @@
 [project]
 name = "open-pi-zero"
-version = "0.1.0"
-description = "Re-implementation of Pi0 vision-language action (VLA) model from Physical Intelligence"
+version = "0.1.1"
+description = "Re-implementation of Pi0 vision-language-action (VLA) model from Physical Intelligence"
 authors = [
-  {name = "Allen Z. Ren", email = "allenren96@gmail.com"},
+  {name = "Allen Z. Ren", email = "allenzren1@gmail.com"},
 ]
 readme = "README.md"
 requires-python = "==3.10.*"

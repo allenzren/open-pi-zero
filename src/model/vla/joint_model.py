@@ -11,7 +11,7 @@ KV caches --- There are a few different modes depending on the setting:
 """
 
 import math
-from typing import List, Optional
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -27,7 +27,7 @@ def forward_mixture_layers(
     position_ids_all: dict[torch.LongTensor],
     embeds_all: dict[torch.FloatTensor],
     layer_idx: int,
-    post_attn_skip_names: List[str] = ["vlm"],
+    post_attn_skip_names: Tuple[str, ...] = ("vlm", "proprio"),
     kv_caches: dict[KVCache] = {},
     cache_mode: str = "append_non_active",
     time_cond: Optional[torch.FloatTensor] = None,
@@ -133,7 +133,7 @@ def forward_mixture_attn(
     position_ids_all: dict[torch.LongTensor],
     hidden_states_all: dict[torch.FloatTensor],
     layer_idx: int,
-    post_attn_skip_names: List[str] = ["vlm"],
+    post_attn_skip_names: Tuple[str, ...] = ("vlm", "proprio"),
     kv_caches: dict[KVCache] = {},
     cache_mode: str = "append_non_active",
     attn_softclamp: float = 50.0,  # default in gemma
@@ -331,7 +331,7 @@ class JointModel(nn.Module):
         position_ids_all: dict[torch.LongTensor],
         embeds_all: dict[torch.FloatTensor],
         time_cond: Optional[torch.FloatTensor] = None,
-        final_layer_post_attn_skip_names: List[str] = ["vlm"],
+        final_layer_post_attn_skip_names: Tuple[str, ...] = ("vlm", "proprio"),
         kv_caches: dict[KVCache] = {},
         cache_mode: str = "append_non_active",
         return_caches: bool = False,
@@ -374,9 +374,10 @@ class JointModel(nn.Module):
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_all = {}
         for name in active_mixture_names:
-            hidden_states_all[name] = self.mixtures[name].forward_norm(
-                embeds_all[name], time_cond
-            )  # can be None
+            if name not in final_layer_post_attn_skip_names:
+                hidden_states_all[name] = self.mixtures[name].forward_norm(
+                    embeds_all[name], time_cond
+                )
         if return_caches:
             return hidden_states_all, kv_caches
         return hidden_states_all
