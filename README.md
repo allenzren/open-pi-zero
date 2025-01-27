@@ -9,12 +9,13 @@ If you find a bug or think I may have misunderstood part of the architecture bas
 <img src="media/open-pi-zero-overview.png" alt="open-pi-zero-overview" width="70%"/>
 
 ## Installation
-Clone this repository at your directory. If running [Simpler eval](https://github.com/simpler-env/SimplerEnv) or trying out trained checkpoints, clone [fork](https://github.com/allenzren/SimplerEnv) (added proprio support) to the same directory
+1. Clone this repository at your directory. If running Simpler eval or trying out trained checkpoints, clone my Simpler fork (added proprio support) to the same directory:
 ```console
+git clone https://github.com/allenzren/open-pi-zero
 git clone https://github.com/allenzren/SimplerEnv --recurse-submodules
 ```
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run the following in the repo directory
+2. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run the following in the repo directory:
 ```console
 uv sync
 uv pip install -e . ../SimplerEnv
@@ -22,10 +23,14 @@ uv pip install -e . ../SimplerEnv/ManiSkill2_real2sim
 ```
 Or you may use venv or conda env instead of uv and run `pip install -e .` in all three directories.
 
-Set environment variables `VLA_DATA_DIR` (if downloading datasets for training), `VLA_LOG_DIR`, and `VLA_WANDB_ENTITY` by running `source scripts/set_path.sh`
-
-Download PaliGemma weights at `TRANSFORMERS_CACHE`
+3. Set environment variables `VLA_DATA_DIR` (if downloading datasets for training), `VLA_LOG_DIR`, and `VLA_WANDB_ENTITY` by running:
 ```console
+source scripts/set_path.sh
+```
+
+4. Download PaliGemma weights at `TRANSFORMERS_CACHE`:
+```console
+cd $TRANSFORMERS_CACHE
 git clone https://huggingface.co/google/paligemma-3b-pt-224
 ```
 
