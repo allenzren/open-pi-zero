@@ -18,6 +18,7 @@ from transformers import AutoTokenizer
 
 import wandb
 from src.agent.dataset import TorchRLDSInterleavedDataset
+from src.agent.model_averaging import ModelAveraging
 from src.model.vla.pizero import PiZero
 from src.model.vla.processing import VLAProcessor
 from src.utils.decorator import main_rank_only
@@ -36,6 +37,7 @@ log = logging.getLogger(__name__)
 class TrainAgent:
     def __init__(self, cfg):
         # device setup
+        self.cfg = cfg
         self.gpu_id = cfg.gpu_id
         self.device = torch.device(f"cuda:{self.gpu_id}")
         self.multi_gpu = cfg.multi_gpu
@@ -83,9 +85,9 @@ class TrainAgent:
         self.use_torch_compile = cfg.get("use_torch_compile", True)
 
         # model
-        assert not (
-            (cfg.quantize or cfg.lora) and not cfg.load_pretrained_weights
-        ), "Please load pretrained weights if quantizing VLM or using Lora."
+        assert not ((cfg.quantize or cfg.lora) and not cfg.load_pretrained_weights), (
+            "Please load pretrained weights if quantizing VLM or using Lora."
+        )
         if cfg.quantize and not cfg.lora:
             log.warning(
                 "Quantizing VLM but not adding Lora weights, which means the VLM will be fully frozen!"
@@ -210,22 +212,6 @@ class TrainAgent:
         if cfg.resume_checkpoint_path:
             self.load_optimizer(cfg.resume_checkpoint_path)
 
-        # Set up model averaging
-        self.use_ema = cfg.get("use_ema", False)
-        if self.use_ema:
-            self.ema_start = cfg.ema_start
-            self.ema_decay = cfg.get("ema_decay", 0.99)
-            self.ema_freq = cfg.get("ema_freq", 1)
-            self.ema_device = cfg.get("ema_device", self.device)
-        self.use_swa = cfg.get("use_swa", False)
-        if self.use_swa:
-            self.swa_start = cfg.swa_start
-            self.swa_freq = cfg.swa_freq
-            self.swa_device = cfg.get("swa_device", "cpu")
-        assert not (
-            self.use_ema and self.use_swa
-        ), "Cannot use both EMA and SWA at once"
-
         ########### Input processing ###########
 
         # flow matching timestep sampling
@@ -278,8 +264,10 @@ class TrainAgent:
             model = self.model.module
         else:
             model = self.model
-        model_eval = model
         model_meta.train()
+
+        # Set up model averaging
+        self.model_averaging = ModelAveraging(model, self.cfg, self.device)
 
         def preprocess_batch(batch, split_mask: bool, sample_fm_time: bool):
             # TODO(allenzren): support multi-image / proprio history
@@ -399,13 +387,11 @@ class TrainAgent:
                         self.vlm_optimizer.zero_grad(set_to_none=True)
                     cnt_update += 1
 
-                    # update ema after every grad step
-                    if hasattr(self, "model_avg"):
-                        if self.use_ema and cnt_update % self.ema_freq == 0:
-                            self.model_avg.update_parameters(model)
-                        if self.use_swa and cnt_update % self.swa_freq == 0:
-                            self.model_avg.update_parameters(model)
-                            log.info("SWA updated")
+                    # initialize ema/swa
+                    self.model_averaging.maybe_initialize(cnt_update)
+
+                    # update ema/swa
+                    self.model_averaging.maybe_update(cnt_update)
 
                     # save model at the end of update, models just synced
                     if (
@@ -431,6 +417,7 @@ class TrainAgent:
                     )
                     new_eval_from_last_log = True
                     model_meta.eval()
+                    model_eval = self.model_averaging.get_model_module()
                     eval_accuracy = torch.zeros(
                         len(self.eval_thresholds), device=self.device
                     )
@@ -472,26 +459,6 @@ class TrainAgent:
                     )
                     log.info(log_msg)
 
-                # start SWA/ema --- wrap the actual model, not the DDP model
-                if not hasattr(self, "model_avg"):
-                    if self.use_swa and cnt_update == self.swa_start:
-                        self.model_avg = torch.optim.swa_utils.AveragedModel(
-                            model, device=self.swa_device
-                        )
-                        log.info("Starting SWA...")
-                    if self.use_ema and cnt_update == self.ema_start:
-                        self.model_avg = torch.optim.swa_utils.AveragedModel(
-                            model,
-                            multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(
-                                self.ema_decay
-                            ),
-                            device=self.ema_device,
-                        )
-                        model_eval = (
-                            self.model_avg.module
-                        )  # switch to using ema for eval
-                        log.info(f"Starting EMA with decay {self.ema_decay}...")
-
                 # log loss
                 if cnt_batch % self.log_freq == 0:
                     loss_metric = np.mean(loss_deque)
@@ -523,7 +490,7 @@ class TrainAgent:
                             new_eval_from_last_log = False
                         wandb.log(wandb_metrics, step=cnt_batch, commit=True)
 
-                # Count
+                # count
                 cnt_batch += 1
                 if cnt_update >= self.n_updates:
                     return
@@ -531,17 +498,15 @@ class TrainAgent:
     @main_rank_only
     @log_execution_time(log)
     def save_training(self, cnt_update: int, cnt_batch: int, main_rank: bool):
-        if hasattr(self, "model_avg"):
-            weights = self.model_avg.module.state_dict()
-            model_type = "ema" if self.use_ema else "swa"
-            n_averaged = self.model_avg.state_dict()["n_averaged"]
+        avg_state = self.model_averaging.state_dict()
+        model_type = avg_state.get("model_type", "normal")
+        n_averaged = avg_state.get("n_averaged", 1)
+        if avg_state:
+            weights = avg_state["state_dict"]
+        elif self.multi_gpu:
+            weights = self.model.module.state_dict()
         else:
-            if self.multi_gpu:
-                weights = self.model.module.state_dict()
-            else:
-                weights = self.model.state_dict()
-            model_type = "normal"
-            n_averaged = 1
+            weights = self.model.state_dict()
         data = {
             "cnt_update": cnt_update,
             "cnt_batch": cnt_batch,

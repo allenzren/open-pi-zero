@@ -189,9 +189,9 @@ def forward_mixture_attn(
         # calculate kv for new tokens if in append mode or this layer is not cached
         key_states_new, value_states_new = None, None
         flag_calc_new_kv = not flag_cached_mixture or cache_mode == "append"
-        assert (
-            flag_cached_mixture or flag_calc_new_kv
-        ), "Cannot skip new kv calculation while also not using cache!"
+        assert flag_cached_mixture or flag_calc_new_kv, (
+            "Cannot skip new kv calculation while also not using cache!"
+        )
         if flag_calc_new_kv:
             hidden_states = hidden_states_all[name]
             # [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
