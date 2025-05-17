@@ -401,7 +401,8 @@ class TrainAgent:
                         self.save_training(
                             cnt_update, cnt_batch, main_rank=self.main_rank
                         )
-                        dist.barrier()
+                        if self.multi_gpu:
+                            dist.barrier()
 
                 # aggregate loss
                 if self.multi_gpu:
