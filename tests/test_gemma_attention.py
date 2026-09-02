@@ -18,10 +18,17 @@ def _tiny_config() -> GemmaConfig:
     )
 
 
-def _causal_mask(batch_size: int, query_length: int, key_length: int) -> torch.Tensor:
+def _causal_mask(
+    batch_size: int,
+    query_length: int,
+    key_length: int,
+    past_length: int = 0,
+) -> torch.Tensor:
+    """Build an additive causal mask, accounting for cached key/value tokens."""
     mask = torch.full((batch_size, 1, query_length, key_length), float("-inf"))
     for query_index in range(query_length):
-        mask[:, :, query_index, : query_index + 1] = 0
+        visible_keys = past_length + query_index + 1
+        mask[:, :, query_index, :visible_keys] = 0
     return mask
 
 
@@ -60,7 +67,7 @@ def test_gemma_attention_rotary_embedding_supports_incremental_kv_cache():
     )
     output, weights = attention(
         next_token,
-        attention_mask=torch.zeros(1, 1, 1, 3),
+        attention_mask=_causal_mask(1, 1, 3, past_length=2),
         position_ids=torch.tensor([[2]]),
         kv_cache=cache,
     )
