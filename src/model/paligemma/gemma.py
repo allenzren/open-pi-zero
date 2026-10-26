@@ -88,7 +88,7 @@ class GemmaAttention(nn.Module):
         ).transpose(1, 2)
 
         # [Batch_Size, Seq_Len, Head_Dim], [Batch_Size, Seq_Len, Head_Dim]
-        cos, sin = self.rotary_emb(position_ids, seq_len=None)
+        cos, sin = self.rotary_emb(query_states, position_ids)
         # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim], [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
         query_states = apply_rotary_pos_emb(query_states, cos, sin)
         key_states = apply_rotary_pos_emb(key_states, cos, sin)
